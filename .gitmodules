@@ -1,0 +1,3 @@
+[submodule "third-party/dijkstra-simple"]
+	path = third-party/dijkstra-simple
+	url = https://github.com/blackheaven/dijkstra-simple
