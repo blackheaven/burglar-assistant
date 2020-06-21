@@ -5,9 +5,9 @@ module Types(
             , DetectionProbability(..)
             ) where
 
-data Environment = Environment { roomSize :: Float, detectors :: [Detector] } deriving (Eq, Show)
+data Environment = Environment { roomSizeHeight :: Float, roomSizeWidth :: Float, detectors :: [Detector] } deriving (Eq, Show)
 
-newtype Detector = Detector { coordinate :: Coordinate } deriving (Eq, Show)
+data Detector = Detector { coordinate :: Coordinate, power :: Float } deriving (Eq, Show)
 
 data Coordinate = Coordinate Float Float deriving (Eq, Ord, Show)
 

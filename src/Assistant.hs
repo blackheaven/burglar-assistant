@@ -9,52 +9,59 @@ import qualified Data.Map.Lazy as M
 import Data.Maybe(catMaybes)
 import Data.Ord(comparing)
 import Graph.DijkstraSimple
-import Debug.Trace
 
 import Types
 
-computeDetectionProbability :: Float -> Detector -> Coordinate -> DetectionProbability
-computeDetectionProbability roomSize (Detector d) t = DetectionProbability $ exp (- (pi * (computeCoordinateDistance d t) /roomSize) ** 2)
+computeDetectionProbability :: Detector -> Coordinate -> DetectionProbability
+computeDetectionProbability (Detector d p) t = DetectionProbability $ exp (- (computeCoordinateDistance d t) ** 2 / (p ** 2))
 
 computeCoordinateDistance :: Coordinate -> Coordinate -> Float
 computeCoordinateDistance (Coordinate ax ay) (Coordinate bx by) = sqrt $ (ax - bx) ** 2 + (ay - by) ** 2
 
 findLowestDetectionProbability :: Environment -> DetectionProbability
-findLowestDetectionProbability (Environment roomSize detectors) = pathWeight $ (pathsAsMap paths) M.! (Coordinate (roomSize - stepSize) $ roomSize/2)
-  where stepSize = roomSize / 10
-        parts =  [0, stepSize..roomSize - stepSize]
-        squaresMap = buildSquares roomSize stepSize detectors $ concatMap (\x -> map (Coordinate x) parts) parts
+findLowestDetectionProbability env@(Environment roomSizeHeight roomSizeWidth detectors) = maximum $ map (pathWeight . (pathsAsMap paths M.!)) [enter, exit]
+  where lowestProbability = findLowestProbability (roomSizeHeight/100) (roomSizeWidth/100) detectors
+        rectanglesMap = buildRectangles lowestProbability $ splitRoom 100 env
         weighter = Weighter (DetectionProbability 0) $ \e p -> max (pathWeight p) (edgeToWeight e)
-        graph = trace (show squaresMap) $ buildGraph stepSize squaresMap
-        paths = shortestPaths graph (Coordinate 0 $ roomSize/2) weighter
+        graph = buildGraph rectanglesMap
+        (enter, target, exit) = ((0, 99), (50, 50), (99, 0))
+        paths = shortestPaths graph target weighter
 
-data Square = Square { leftDownCorner :: Coordinate, detectionProbability :: DetectionProbability }
+data Rectangle = Rectangle { leftDownCorner :: Coordinate, detectionProbability :: DetectionProbability }
+type RectangleCoordinate = (Int, Int)
 
-instance Show Square where
-  show (Square (Coordinate x y) (DetectionProbability p)) = show (x, y) ++ " -> " ++ show p
+-- | Split the room in multiple rectangles in order to approximate global
+-- probability.
+-- The first parameter indicate the number of split per height and width,
+-- meaning the number of rectangle will be squarred this number.
+splitRoom :: Int -> Environment -> [(RectangleCoordinate, Coordinate)]
+splitRoom parts (Environment roomSizeHeight roomSizeWidth _) = zip rectangleCoordinates coordinates
+  where (stepSizeHeight, stepSizeWidth) = (roomSizeHeight / fromIntegral parts, roomSizeWidth / fromIntegral parts)
+        (partsHeight, partsWidth) =  ([0, stepSizeHeight..roomSizeHeight - stepSizeHeight], [0, stepSizeWidth..roomSizeWidth - stepSizeWidth])
+        coordinates = concatMap (\x -> map (Coordinate x) partsHeight) partsWidth
+        indexes = [0..parts - 1]
+        rectangleCoordinates = concatMap (\x -> map (\y -> (x, y)) indexes) indexes
 
-buildSquares :: Float -> Float -> [Detector] -> [Coordinate] -> M.Map Coordinate Square
-buildSquares roomSize squareSize detectors = M.fromList . map (\c -> (c, buildSquare c))
-  where buildSquare c = Square c (findLowestProbability c)
-        findLowestProbability :: Coordinate -> DetectionProbability
-        findLowestProbability c
-         | null inside = minimum $ map (\d -> computeDetectionProbability roomSize d c) detectors
-         | otherwise   = DetectionProbability 1
-          where (inside, outside) = partition (isInSquare c . coordinate) detectors
-                isInSquare (Coordinate ax ay) (Coordinate bx by) = ax <= bx && (ax + squareSize) >= bx && ay <= by && (ay + squareSize) >= by
+-- | Given a list of left down corner rectangles, build the whole data type
+buildRectangles :: (Coordinate -> DetectionProbability) -> [(RectangleCoordinate, Coordinate)] -> M.Map RectangleCoordinate Rectangle
+buildRectangles lowestProbability = M.fromList . map (fmap buildRectangle)
+  where buildRectangle c = Rectangle c (lowestProbability c)
 
-buildGraph :: Float -> M.Map Coordinate Square -> Graph Coordinate DetectionProbability
-buildGraph squareSize squaresMap = Graph $ M.fromList $ map buildVertice $ M.keys squaresMap
-  where buildVertice o@(Coordinate x y) =
-          (o, catMaybes [ (\(Square c d) -> EdgeTo c d) <$> (squaresMap M.!? Coordinate x'' y'')
-                        | (x', y') <- [
-                                        (squareSize, squareSize)
-                                      , (squareSize, 0)
-                                      , (squareSize, - squareSize)
-                                      , (0, - squareSize)
-                                      , (- squareSize, - squareSize)
-                                      , (- squareSize, 0)
-                                      , (- squareSize, - squareSize)
-                                      ]
-                        , (x'', y'') <- [(x + x', y + y')]
+-- | Find the lowest probability possible for a rectangle
+findLowestProbability :: Float -> Float -> [Detector] -> Coordinate -> DetectionProbability
+findLowestProbability rectangleWidth rectangleSizeHeight detectors c
+ | null inside = maximum $ map (\d -> computeDetectionProbability d c) detectors
+ | otherwise   = DetectionProbability 1
+  where (inside, outside) = partition (isInRectangle c . coordinate) detectors
+        isInRectangle (Coordinate ax ay) (Coordinate bx by) =
+          ax <= bx && (ax + rectangleWidth) >= bx && ay <= by && (ay + rectangleSizeHeight) >= by
+
+-- | Convert the map to a graph, given that each element is linked to his
+-- neigours and the edge weight is the element's probability
+buildGraph :: M.Map RectangleCoordinate Rectangle -> Graph RectangleCoordinate DetectionProbability
+buildGraph rectanglesMap = Graph $ M.fromList $ map buildVertice $ M.keys rectanglesMap
+  where buildVertice o@(x, y) =
+          (o, catMaybes [ (\(Rectangle _ d) -> EdgeTo coords d) <$> (rectanglesMap M.!? coords)
+                        | (x', y') <- [(1, 1), (1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, -1)]
+                        , coords <- [(x + x', y + y')]
                         ])
