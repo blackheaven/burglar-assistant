@@ -9,7 +9,6 @@ import qualified Data.Map.Lazy as M
 import Data.Maybe(catMaybes)
 import Data.Ord(comparing)
 import Graph.DijkstraSimple
-import Debug.Trace
 
 import Types
 
@@ -25,7 +24,7 @@ findLowestDetectionProbability (Environment roomSize detectors) = pathWeight $ (
         parts =  [0, stepSize..roomSize - stepSize]
         squaresMap = buildSquares roomSize stepSize detectors $ concatMap (\x -> map (Coordinate x) parts) parts
         weighter = Weighter (DetectionProbability 0) $ \e p -> max (pathWeight p) (edgeToWeight e)
-        graph = trace (show squaresMap) $ buildGraph stepSize squaresMap
+        graph = buildGraph stepSize squaresMap
         paths = shortestPaths graph (Coordinate 0 $ roomSize/2) weighter
 
 data Square = Square { leftDownCorner :: Coordinate, detectionProbability :: DetectionProbability }
@@ -38,7 +37,7 @@ buildSquares roomSize squareSize detectors = M.fromList . map (\c -> (c, buildSq
   where buildSquare c = Square c (findLowestProbability c)
         findLowestProbability :: Coordinate -> DetectionProbability
         findLowestProbability c
-         | null inside = minimum $ map (\d -> computeDetectionProbability roomSize d c) detectors
+         | null inside = maximum $ map (\d -> computeDetectionProbability roomSize d c) detectors
          | otherwise   = DetectionProbability 1
           where (inside, outside) = partition (isInSquare c . coordinate) detectors
                 isInSquare (Coordinate ax ay) (Coordinate bx by) = ax <= bx && (ax + squareSize) >= bx && ay <= by && (ay + squareSize) >= by
